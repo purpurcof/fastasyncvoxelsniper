@@ -1,63 +1,44 @@
-name: build
-on: [pull_request, push]
+name: Build Plugin
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-    build:
-        if: ${{ github.event_name != 'pull_request' || github.repository != github.event.pull_request.head.repo.full_name }}
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@v6
-            - name: Validate Gradle Wrapper
-              uses: gradle/actions/wrapper-validation@v5
-            - name: Setup Java
-              uses: actions/setup-java@v5
-              with:
-                  distribution: temurin
-                  java-version: 17
-            - name: Clean Build
-              run: ./gradlew clean build --no-daemon
-            - name: Archive Artifacts
-              uses: actions/upload-artifact@v7
-              with:
-                  name: FastAsyncVoxelSniper-SNAPSHOT
-                  path: build/libs/*-SNAPSHOT.jar
-            - name: Determine release status
-              if: ${{ runner.os == 'Linux' }}
-              run: |
-                  if [ "$(./gradlew properties | awk '/^version:/ { print $2; }' | grep '\-SNAPSHOT')" ]; then
-                    echo "STATUS=snapshot" >> $GITHUB_ENV
-                  else
-                    echo "STATUS=release" >> $GITHUB_ENV
-                  fi
-            - name: Publish Release
-              if: ${{ runner.os == 'Linux' && env.STATUS == 'release' && github.event_name == 'push' && github.ref == 'refs/heads/main'}}
-              run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
-              env:
-                  ORG_GRADLE_PROJECT_mavenCentralUsername : ${{ secrets.CENTRAL_USERNAME }}
-                  ORG_GRADLE_PROJECT_mavenCentralPassword : ${{ secrets.CENTRAL_PASSWORD }}
-                  ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
-                  ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
-            - name: Publish Snapshot
-              if: ${{ runner.os == 'Linux' && env.STATUS != 'release' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-              run: ./gradlew publishAllPublicationsToMavenCentralRepository
-              env:
-                  ORG_GRADLE_PROJECT_mavenCentralUsername : ${{ secrets.CENTRAL_USERNAME }}
-                  ORG_GRADLE_PROJECT_mavenCentralPassword : ${{ secrets.CENTRAL_PASSWORD }}
-            - name: Publish javadocs
-              if: ${{ runner.os == 'Linux' && env.STATUS == 'release' && github.event_name == 'push' && github.ref == 'refs/heads/main'}}
-              uses: cpina/github-action-push-to-another-repository@main
-              env:
-                  SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
-              with:
-                  source-directory: 'build/docs/javadoc'
-                  destination-github-username: 'IntellectualSites'
-                  destination-repository-name: 'fastasyncvoxelsniper-javadocs'
-                  user-email: ${{ secrets.USER_EMAIL }}
-                  target-branch: main
-            - name: Publish to GitHub actions
-              if: ${{ runner.os == 'Linux' && env.STATUS == 'release' && github.event_name == 'push' && github.ref == 'refs/heads/main'}}
-              uses: AButler/upload-release-assets@v3.0
-              with:
-                  files: build/libs/fastasyncvoxelsniper-${{ github.event.release.tag_name }}.jar
-                  repo-token: ${{ secrets.GITHUB_TOKEN }}
-                  release-tag: ${{ github.event.release.tag_name }}
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Shadow Jar
+        run: |
+          chmod +x gradlew
+          ./gradlew clean shadowJar
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Plugin-Jar
+          path: |
+            build/libs/*.jar
+            target/*.jar
+          if-no-files-found: error
